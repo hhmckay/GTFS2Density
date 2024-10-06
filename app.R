@@ -4,6 +4,7 @@
 library(shiny)
 library(tools)
 library(dplyr)
+library(readr)
 library(ggplot2)
 library(scales)
 library(sf)
@@ -15,6 +16,14 @@ library(lehdr)
 library(tidytransit)
 library(ggplot2)
 library(leaflet)
+library(waiter)
+library(shinycssloaders)
+
+# Waiting screen to display when analysis is running
+waiting_screen <- tagList(
+  spin_3(),
+  h4("Performing spatial analysis. This may take a few minutes.", style = "color: black;")
+  )
 
 ### Global parameters/functions
 
@@ -64,37 +73,37 @@ feed_contains <- function(gtfs_obj, table_name) {
     (exists(".", where = gtfs_obj) && exists(table_name, where = gtfs_obj$.))
 }
 
-### Access land use data
+### Access land use data (currently set to read from local server)
 
 # Get ACS population data from tidycensus
-ca_pop <- st_transform(get_acs(
-  geography = "block group",
-  state = 06,
-  variables = "B01003_001",
-  year = 2021,
-  survey = "acs5",
-  geometry = T
-), crs = crs)
-
-# Get employment data from LEHDR
-ca_jobs <- grab_lodes(
-  state = "ca",
-  year = 2021,
-  lodes_type = "wac",
-  job_type = "JT00",
-  segment = "S000",
-  agg_geo = "bg"
-) %>%
-  select(w_bg, C000)
-
-# Combine population/employment data into a single dataframe
-ca_demographics <- merge(
-  ca_pop,
-  ca_jobs,
-  by.x = "GEOID",
-  by.y = "w_bg",
-  all.x = T
-)
+# ca_pop <- st_transform(get_acs(
+#   geography = "block group",
+#   state = 06,
+#   variables = "B01003_001",
+#   year = 2021,
+#   survey = "acs5",
+#   geometry = T
+# ), crs = crs)
+# 
+# # Get employment data from LEHDR
+# ca_jobs <- grab_lodes(
+#   state = "ca",
+#   year = 2021,
+#   lodes_type = "wac",
+#   job_type = "JT00",
+#   segment = "S000",
+#   agg_geo = "bg"
+# ) %>%
+#   select(w_bg, C000)
+# 
+# # Combine population/employment data into a single dataframe
+# ca_demographics <- merge(
+#   ca_pop,
+#   ca_jobs,
+#   by.x = "GEOID",
+#   by.y = "w_bg",
+#   all.x = T
+# )
 
 ### Shiny UI
 ui <- fluidPage(
@@ -107,6 +116,7 @@ ui <- fluidPage(
       uiOutput("title_text"),
       uiOutput("spatial_gran"),
       uiOutput("distance_gran"),
+      useWaiter(),
       actionButton("plot", "Generate Plot"),
       downloadButton("plot_download", "Download Plot")
     ),
@@ -122,6 +132,10 @@ server <- function(input, output, session) {
   
   # Set max file input size to 30 MB (to enable large GTFS feeds)
   options(shiny.maxRequestSize=30*1024^2)
+  
+  # Read land use data from server
+  ca_demographics <- read_rds("data/ca_demographics.rds") %>%
+    st_set_crs(crs)
   
   # Read GTFS data
   gtfs_data <- reactive({
@@ -252,6 +266,10 @@ server <- function(input, output, session) {
   
   ### Perform spatial analysis and generate plot
   observeEvent(input$plot, {
+    
+    # Show loading screen while analysis is running
+    waiter_show(html = waiting_screen, color = "white")
+    
     req(route_shape_data())
     req(stop_shape_data())
     
@@ -463,17 +481,20 @@ server <- function(input, output, session) {
        plot
      })
      
-     # Enable download
-     output$plot_download = downloadHandler(
-       filename = 'DensityChart.png',
-       content = function(file) {
-         device <- function(..., width, height) {
-           grDevices::png(..., width = 8.5, height = 11,
-                          res = 600, units = "in")
-         }
-         ggsave(file, plot = plot, device = device, bg = "white")
-       })
+     # Close waiting screen once analysis is run
+     waiter_hide()
   })
+  
+  # Enable download
+  output$plot_download = downloadHandler(
+    filename = 'DensityChart.png',
+    content = function(file) {
+      device <- function(..., width, height) {
+        grDevices::png(..., width = 8.5, height = 11,
+                       res = 600, units = "in")
+      }
+      ggsave(file, plot = plot, device = device, bg = "white")
+    })
 }
 
 # Run app
