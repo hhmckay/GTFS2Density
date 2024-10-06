@@ -483,18 +483,18 @@ server <- function(input, output, session) {
      
      # Close waiting screen once analysis is run
      waiter_hide()
+     
+     # Enable download
+     output$plot_download = downloadHandler(
+       filename = paste0(input$title_text,' Density Chart.png'),
+       content = function(file) {
+         device <- function(..., width, height) {
+           grDevices::png(..., width = 8.5, height = 11,
+                          res = 600, units = "in")
+         }
+         ggsave(file, plot = plot, device = device, bg = "white")
+       })
   })
-  
-  # Enable download
-  output$plot_download = downloadHandler(
-    filename = 'DensityChart.png',
-    content = function(file) {
-      device <- function(..., width, height) {
-        grDevices::png(..., width = 8.5, height = 11,
-                       res = 600, units = "in")
-      }
-      ggsave(file, plot = plot, device = device, bg = "white")
-    })
 }
 
 # Run app
